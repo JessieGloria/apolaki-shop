@@ -87,13 +87,15 @@ const PRICES = [["", "Any price"], ["0-80", "Under RM 80"], ["80-150", "RM 80 â€
 const SORTS = [["popular", "Bestselling"], ["new", "Newest"], ["low", "Price: low to high"], ["high", "Price: high to low"]];
 
 function saveBasket() {
-  S.basket = S.basket.filter(l => groupOf(l.sku) && l.qty > 0);
+  /* only drop items that are no longer sold once the catalogue has actually loaded;
+     before that (or if loading failed) keep the saved basket exactly as it is */
+  if (S.groups.length) S.basket = S.basket.filter(l => groupOf(l.sku) && l.qty > 0);
   store.set("basket", S.basket);
   const n = S.basket.reduce((t, l) => t + l.qty, 0);
   $$("[data-count=cart]").forEach(b => { b.textContent = n; b.hidden = !n; });
 }
 function saveWish() {
-  S.wish = S.wish.filter(id => groupOf(id));
+  if (S.groups.length) S.wish = [...new Set(S.wish.map(id => (groupOf(id) || {}).id).filter(Boolean))];   /* keep ids in step with the catalogue */
   store.set("wishlist", S.wish);
   $$("[data-count=wish]").forEach(b => { b.textContent = S.wish.length; b.hidden = !S.wish.length; });
 }
