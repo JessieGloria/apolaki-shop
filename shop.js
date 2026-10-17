@@ -105,7 +105,7 @@ function toggleWish(id) {
   if (wished(g)) { S.wish = S.wish.filter(x => x !== g.id); toast("Removed from wishlist"); }
   else { S.wish.push(g.id); toast("Saved to wishlist"); }
   saveWish();
-  $$(`[data-wish="${CSS.escape(g.id)}"]`).forEach(b => { b.setAttribute("aria-pressed", wished(g)); b.setAttribute("aria-label", wished(g) ? "Remove from wishlist" : "Save to wishlist"); });
+  $$(`[data-wish="${CSS.escape(g.id)}"]`).forEach(b => { b.setAttribute("aria-pressed", wished(g)); b.setAttribute("aria-label", wished(g) ? "Remove from wishlist" : "Save to wishlist"); const t = b.querySelector("span"); if (t) t.textContent = wished(g) ? "Saved to wishlist" : "Add to wishlist"; });
 }
 const basketLines = () => S.basket.map(l => { const g = groupOf(l.sku); return { ...l, g, p: g && g.items.find(i => i.sku === l.sku) }; }).filter(l => l.p);
 const subtotal = () => basketLines().reduce((t, l) => t + l.qty * Number(l.p.price), 0);
@@ -139,7 +139,7 @@ function card(g, i = 0) {
   return `<article class="card" style="animation-delay:${Math.min(i, 12) * 35}ms">
     <a href="#/p/${encodeURIComponent(g.id)}" class="card-link" aria-label="${esc(g.name)}, ${esc(priceText(g))}">
       ${phHtml(g.photo, g.name)}${g.ready ? `<span class="tag ready">Ready to ship</span>` : ""}</div>
-      <div class="meta"><h3>${esc(g.name)}</h3><div class="price">${priceText(g)}</div>
+      <div class="meta"><div class="row"><h3>${esc(g.name)}</h3><span class="price">${priceText(g)}</span></div>
         ${g.items.length > 1 ? `<div class="sizes">${g.items.map(i => esc(i.label)).join(" · ")}</div>` : ""}</div>
     </a>
     <button class="heart" type="button" data-wish="${esc(g.id)}" aria-pressed="${wished(g)}" aria-label="${wished(g) ? "Remove from wishlist" : "Save to wishlist"}">${I.heart}</button>
@@ -203,50 +203,66 @@ function related(g) {
 /* ---------- home ---------- */
 function renderHome() {
   if (S.loading || S.error) return renderState();
-  const s = S.settings, best = bestsellers().slice(0, 8), fresh = newest().slice(0, 8), cols = collections().filter(c => c.photo).slice(0, 6), cats = categories();
-  const hero = (best.find(g => g.photo) || S.groups.find(g => g.photo) || {}).photo;
+  const s = S.settings, cats = categories(), cols = collections().filter(c => c.photo).slice(0, 6);
+  const withPhoto = list => [...list.filter(g => g.photo), ...list.filter(g => !g.photo)];   /* pieces with photos first */
+  const bestAll = bestsellers(), best = withPhoto(bestAll).slice(0, 8);
+  const fresh = withPhoto(newest()).slice(0, 8);
+  const heroG = bestAll.find(g => g.photo) || S.groups.find(g => g.photo) || {};
   const minRate = Math.min(...Object.values(s.rates || {}).map(Number).filter(n => !isNaN(n)));
   const reviews = (Array.isArray(s.reviews) ? s.reviews : []).filter(r => r && r.text && r.name);
+  const storyG = S.groups.find(g => g.photo && g !== heroG && g.category !== heroG.category) || S.groups.find(g => g.photo && g !== heroG);
+  /* category tiles use a different photo from the banner where possible */
+  const catTiles = cats.map(c => ({ ...c, photo: (c.groups.find(g => g.photo && g.photo !== heroG.photo) || c).photo })).filter(c => c.photo);
   $("#view").innerHTML = `
-    <section class="banner">
-      ${hero ? `<img src="${esc(hero)}" alt="" fetchpriority="high">` : ""}
-      <div class="banner-text">
-        <p class="eyebrow">${esc(s.banner_eyebrow || "Handmade brass jewellery")}</p>
-        <h1>${esc(s.banner_title || "Shaped by hand, made for you.")}</h1>
-        <p>${esc(s.banner_text || "Bracelets, earrings and rings crafted in brass by Jason Labunda.")}</p>
-        <a class="btn light" href="#/shop">Shop now</a>
+    <section class="hero">
+      ${heroG.photo ? `<img src="${esc(heroG.photo)}" alt="${esc(heroG.name)}" fetchpriority="high">` : ""}
+      <div class="hero-text">
+        <p class="eyebrow">${esc(s.banner_eyebrow || (heroG.collection ? `The ${heroG.collection} collection` : "Handmade brass jewellery"))}</p>
+        <h1>${esc(s.banner_title || "Shaped by hand")}</h1>
+        <p>${esc(s.banner_text || "Brass jewellery made in small batches by Jason Labunda.")}</p>
+        <a class="link" href="#/shop">Shop now</a>
       </div>
     </section>
-    <ul class="perks">
-      <li>Made to order within ${lead()}</li>
-      ${isFinite(minRate) ? `<li>Shipping in Malaysia from ${RM(minRate)}</li>` : ""}
-      <li>Pay by DuitNow or bank transfer</li>
-    </ul>
 
     <section class="sec">
-      <div class="sec-head"><h2>Shop by category</h2></div>
-      <div class="cat-row">${cats.map(c => `<a class="cat-tile" href="#/shop?cat=${encodeURIComponent(c.name)}">${phHtml(c.photo, c.name)}</div><span>${esc(plural(c.name))}</span></a>`).join("")}</div>
-    </section>
-
-    ${best.length ? `<section class="sec">
-      <div class="sec-head"><h2>Bestsellers</h2><a href="#/shop?sort=popular">See all</a></div>
-      ${rail(best)}
-    </section>` : ""}
-
-    <section class="sec">
-      <div class="sec-head"><h2>New arrivals</h2><a href="#/shop?sort=new">See all</a></div>
+      <div class="sec-head"><h2>New arrivals</h2><a href="#/shop?sort=new">View all</a></div>
       ${rail(fresh)}
     </section>
 
+    ${catTiles.length ? `<div class="split${catTiles.length >= 3 ? " three" : ""}">${catTiles.slice(0, 3).map(c => `
+      <a href="#/shop?cat=${encodeURIComponent(c.name)}">${phHtml(c.photo, plural(c.name))}</div>
+        <div class="lb"><span>${esc(plural(c.name))}</span><span class="link">Shop now</span></div></a>`).join("")}</div>` : ""}
+
+    ${best.length ? `<section class="sec">
+      <div class="sec-head"><h2>Bestsellers</h2><a href="#/shop?sort=popular">View all</a></div>
+      ${grid(best)}
+    </section>` : ""}
+
     ${cols.length ? `<section class="sec">
-      <div class="sec-head"><h2>Collections</h2><a href="#/collections">See all</a></div>
+      <div class="sec-head"><h2>Collections</h2><a href="#/collections">View all</a></div>
       <div class="col-grid">${cols.map(colTile).join("")}</div>
     </section>` : ""}
+
+    <section class="story">
+      ${storyG ? phHtml(storyG.photo, storyG.name) + "</div>" : ""}
+      <div>
+        <p class="eyebrow">Our craft</p>
+        <h3>${esc(s.story_title || "Made by hand, in small batches.")}</h3>
+        <p class="pre">${esc(s.story_text || "Every Apolaki piece is made in brass by Jason Labunda. Many are made to order, so no two are exactly alike.")}</p>
+        <a class="link" href="#/collections">Explore the collections</a>
+      </div>
+    </section>
 
     ${reviews.length ? `<section class="sec">
       <div class="sec-head"><h2>From our customers</h2></div>
       <div class="reviews">${reviews.slice(0, 6).map(r => `<figure class="review"><blockquote>${esc(r.text)}</blockquote><figcaption>${esc(r.name)}${r.place ? " · " + esc(r.place) : ""}</figcaption></figure>`).join("")}</div>
-    </section>` : ""}`;
+    </section>` : ""}
+
+    <div class="perk-row">
+      <div><b>Made to order</b>within ${lead()}</div>
+      <div><b>Ships in Malaysia</b>${isFinite(minRate) ? "from " + RM(minRate) : "flat rates"}</div>
+      <div><b>DuitNow</b>or transfer</div>
+    </div>`;
 }
 const colTile = c => `<a class="col-tile" href="#/c/${encodeURIComponent(c.name)}">${phHtml(c.photo, c.name)}</div>
   <span class="col-name">${esc(c.name)}</span><span class="col-count">${c.groups.length} piece${c.groups.length > 1 ? "s" : ""}</span></a>`;
@@ -379,6 +395,7 @@ function renderProduct(id, pickSku) {
         <div class="buy" id="buy">
           <div class="qty" aria-label="Quantity"><button type="button" data-q="-1" aria-label="Fewer">−</button><span id="qty">1</span><button type="button" data-q="1" aria-label="More">+</button></div>
           <button class="btn grow" type="button" id="add">Add to cart</button>
+          <button class="btn ghost wish-btn" type="button" data-wish="${esc(g.id)}" aria-pressed="${wished(g)}">${I.heart}<span>${wished(g) ? "Saved to wishlist" : "Add to wishlist"}</span></button>
         </div>
         ${g.description ? `<p class="desc">${esc(g.description)}</p>` : ""}
         ${details.length ? `<dl class="details">${details.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
