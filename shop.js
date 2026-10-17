@@ -617,10 +617,14 @@ function renderDone() {
   const bank = s.account_no ? `<dl class="kv"><dt>Bank</dt><dd>${esc(s.bank_name)}</dd><dt>Name</dt><dd>${esc(s.account_name)}</dd>
       <dt>Account</dt><dd>${esc(s.account_no)}<button class="copy" type="button" data-copy="${esc(s.account_no)}">Copy</button></dd>
       <dt>Reference</dt><dd>${esc(o.order_no)}<button class="copy" type="button" data-copy="${esc(o.order_no)}">Copy</button></dd></dl>` : "";
-  const pay = s.duitnow_qr || bank
-    ? `<div class="paybox${s.duitnow_qr ? " has-qr" : ""}">${s.duitnow_qr ? `<img src="${esc(s.duitnow_qr)}" alt="DuitNow QR code for Apolaki">` : ""}<div>${s.duitnow_qr ? `<p class="small muted" style="margin:0 0 8px">Scan with any banking or e-wallet app${bank ? ", or transfer to:" : "."}</p>` : ""}${bank}</div></div>
-       <button class="btn ghost save-qr" type="button" id="saveQr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save ${s.duitnow_qr ? "QR &amp; bank details" : "bank details"} to phone</button>
-       <p class="small muted" style="margin:6px 0 0">Then open your banking app and scan it from your photos.</p>`
+  const qrSrc = C.duitnowQr || s.duitnow_qr;
+  const pay = qrSrc || bank
+    ? `<div class="paybox${qrSrc ? " has-qr" : ""}">
+         ${qrSrc ? `<figure class="qr-fig"><img src="${esc(qrSrc)}" alt="DuitNow QR code for Jason Labunda Enterprise"><button class="save-link" type="button" data-save>⬇️ Save QR</button></figure>` : ""}
+         <div>${qrSrc ? `<p class="small muted" style="margin:0 0 8px">Scan with any banking or e-wallet app${bank ? ", or transfer to:" : "."}</p>` : ""}${bank}</div>
+       </div>
+       ${qrSrc ? `<p class="small muted" style="margin:8px 0 0">On your phone, save the QR, then open your banking app and scan it from your photos.</p>`
+         : `<button class="btn ghost save-qr" type="button" data-save><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save bank details to phone</button>`}`
     : `<p class="muted">We'll send you our DuitNow / bank details on WhatsApp.</p>`;
   $("#view").innerHTML = `
     <section class="done">
@@ -643,7 +647,7 @@ function renderDone() {
       <p style="margin-top:22px"><a href="#/" class="btn ghost">Back to the shop</a></p>
     </section>`;
   $$("[data-copy]").forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast("Copied"); } catch { toast(b.dataset.copy); } });
-  const sq = $("#saveQr"); if (sq) sq.onclick = () => savePayCard(o, sq);
+  $$("[data-save]").forEach(b => b.onclick = () => savePayCard(o, b));
 }
 
 /* ---------- payment card image: QR + bank details, saved to the phone ---------- */
@@ -659,15 +663,16 @@ async function savePayCard(o, btn) {
   try {
     try { await document.fonts.ready; } catch {}
     const W = 1080, qrSize = 760;
-    const qr = s.duitnow_qr ? await loadImgCors(s.duitnow_qr).catch(() => null) : null;
+    const qrSrc = C.duitnowQr || s.duitnow_qr;
+    const qr = qrSrc ? await loadImgCors(qrSrc).catch(() => null) : null;
     const logo = await loadImg("logo-full.png").catch(() => null);
-    const H = qr ? 1900 : 1220;
+    const H = qr ? 2000 : 1300;
     const c = document.createElement("canvas"); c.width = W; c.height = H;
     const x = c.getContext("2d");
     x.fillStyle = "#f7f3ec"; x.fillRect(0, 0, W, H);
     x.textAlign = "center"; x.textBaseline = "alphabetic";
     let y = 90;
-    if (logo) { const lw = 300, lh = lw * logo.height / logo.width; x.drawImage(logo, (W - lw) / 2, y - 20, lw, lh); y += lh + 30; }
+    if (logo) { const lw = 300, lh = lw * logo.height / logo.width; x.drawImage(logo, (W - lw) / 2, y - 20, lw, lh); y += lh + 56; }
     else { x.fillStyle = "#1b1a17"; x.font = '500 64px Fraunces, Georgia, serif'; x.fillText("Apolaki", W / 2, y); y += 54; }
     x.fillStyle = "#7a7368"; x.font = '400 32px Poppins, Arial, sans-serif';
     x.fillText(`Order ${o.order_no}${o.total != null ? " · " + RM(o.total) + (o.shipping_fee == null ? " + shipping" : "") : ""}`, W / 2, y); y += 50;
@@ -677,14 +682,22 @@ async function savePayCard(o, btn) {
       const r = Math.min(qrSize / qr.width, qrSize / qr.height), dw = qr.width * r, dh = qr.height * r;
       x.drawImage(qr, (W - dw) / 2, y + pad + (qrSize - dh) / 2, dw, dh);
       y += qrSize + pad * 2 + 60;
-      x.fillStyle = "#8a6222"; x.font = '600 28px Poppins, Arial, sans-serif'; x.fillText("SCAN WITH ANY BANKING OR E-WALLET APP", W / 2, y); y += 70;
+      x.fillStyle = "#8a6222"; x.font = '600 28px Poppins, Arial, sans-serif'; x.fillText("SCAN WITH ANY BANKING OR E-WALLET APP", W / 2, y); y += 96;
     } else y += 40;
     const rows = [["Name", s.account_name], ["Bank", s.bank_name], ["Account", s.account_no], ["Reference", o.order_no]].filter(rw => rw[1]);
-    rows.forEach(([k, v]) => {
-      x.fillStyle = "#7a7368"; x.font = '400 30px Poppins, Arial, sans-serif'; x.fillText(k, W / 2, y); y += 50;
-      x.fillStyle = "#1b1a17"; x.font = (k === "Account" ? '600 54px' : '500 40px') + ' Poppins, Arial, sans-serif'; x.fillText(v, W / 2, y); y += k === "Account" ? 74 : 62;
+    /* every label/value pair gets the same breathing room, whatever the value's size */
+    rows.forEach(([k, v], n) => {
+      const size = k === "Account" ? 54 : 40;
+      if (n) y += 40 + 22;                                   /* gap between blocks + label cap height */
+      x.fillStyle = "#7a7368"; x.font = '400 30px Poppins, Arial, sans-serif'; x.fillText(k, W / 2, y);
+      y += 28 + Math.round(size * 0.74);                    /* gap under the label + value cap height */
+      x.fillStyle = "#1b1a17"; x.font = (k === "Account" ? '600 ' : '500 ') + size + 'px Poppins, Arial, sans-serif'; x.fillText(v, W / 2, y);
+      y += Math.round(size * 0.26);                         /* descenders */
     });
-    const blob = await new Promise(res => c.toBlob(res, "image/png"));
+    /* trim to the content, same margin at the bottom as at the top */
+    const out = document.createElement("canvas"); out.width = W; out.height = Math.min(H, y + 110);
+    out.getContext("2d").drawImage(c, 0, 0);
+    const blob = await new Promise(res => out.toBlob(res, "image/png"));
     const name = `Apolaki-payment-${String(o.order_no).replace(/\W/g, "")}.png`;
     const file = new File([blob], name, { type: "image/png" });
     if (navigator.canShare && navigator.canShare({ files: [file] }) && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
@@ -694,7 +707,7 @@ async function savePayCard(o, btn) {
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
       toast("Saved to your downloads");
     }
-    if (s.duitnow_qr && !qr) toast("Saved bank details (the QR couldn't be added)");
+    if (qrSrc && !qr) toast("Saved bank details (the QR couldn't be added)");
   } catch (e) { toast("Couldn't save the image. Take a screenshot instead."); }
   btn.disabled = false; btn.innerHTML = label;
 }
@@ -763,7 +776,7 @@ window.addEventListener("scroll", () => $(".top").classList.toggle("scrolled", w
 function footer() {
   const s = S.settings, wa = waNum(), rates = s.rates || {};
   $("#footInfo").innerHTML = `
-    <div><h4>Contact</h4>${wa ? `<p><a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp ${esc(s.whatsapp)}</a></p>` : ""}<p class="muted">Questions about sizes or custom pieces are welcome.</p></div>
+    <div><h4>Contact</h4>${wa ? `<p><a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a></p>` : ""}<p class="muted">Questions about sizes or custom pieces are welcome.</p></div>
     <div><h4>Delivery</h4><ul class="plain">${REGIONS.filter(r => r.id !== "overseas" && rates[r.id] != null).map(r => `<li><span>${esc(r.short)}</span><span>${RM(rates[r.id])}</span></li>`).join("")}<li><span>Overseas</span><span>Quoted</span></li></ul>
       <p class="muted">Made-to-order pieces ship within ${lead()}.</p></div>
     <div><h4>Payment</h4><p class="muted">DuitNow QR or bank transfer. No account needed.</p>${s.returns_text ? `<h4>Returns</h4><p class="muted pre">${esc(s.returns_text)}</p>` : ""}</div>`;
