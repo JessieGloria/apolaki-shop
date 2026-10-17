@@ -660,15 +660,15 @@ async function savePayCard(o, btn) {
     try { await document.fonts.ready; } catch {}
     const W = 1080, qrSize = 760;
     const qr = s.duitnow_qr ? await loadImgCors(s.duitnow_qr).catch(() => null) : null;
-    const logo = await loadImg("logo.png").catch(() => null);
-    const H = qr ? 1720 : 1080;
+    const logo = await loadImg("logo-full.png").catch(() => null);
+    const H = qr ? 1900 : 1220;
     const c = document.createElement("canvas"); c.width = W; c.height = H;
     const x = c.getContext("2d");
     x.fillStyle = "#f7f3ec"; x.fillRect(0, 0, W, H);
     x.textAlign = "center"; x.textBaseline = "alphabetic";
     let y = 90;
-    if (logo) { const lw = 120, lh = lw * logo.height / logo.width; x.drawImage(logo, (W - lw) / 2, y, lw, lh); y += lh + 50; }
-    x.fillStyle = "#1b1a17"; x.font = '500 64px Fraunces, Georgia, serif'; x.fillText("Apolaki", W / 2, y); y += 54;
+    if (logo) { const lw = 300, lh = lw * logo.height / logo.width; x.drawImage(logo, (W - lw) / 2, y - 20, lw, lh); y += lh + 30; }
+    else { x.fillStyle = "#1b1a17"; x.font = '500 64px Fraunces, Georgia, serif'; x.fillText("Apolaki", W / 2, y); y += 54; }
     x.fillStyle = "#7a7368"; x.font = '400 32px Poppins, Arial, sans-serif';
     x.fillText(`Order ${o.order_no}${o.total != null ? " · " + RM(o.total) + (o.shipping_fee == null ? " + shipping" : "") : ""}`, W / 2, y); y += 50;
     if (qr) {
