@@ -618,7 +618,9 @@ function renderDone() {
       <dt>Account</dt><dd>${esc(s.account_no)}<button class="copy" type="button" data-copy="${esc(s.account_no)}">Copy</button></dd>
       <dt>Reference</dt><dd>${esc(o.order_no)}<button class="copy" type="button" data-copy="${esc(o.order_no)}">Copy</button></dd></dl>` : "";
   const pay = s.duitnow_qr || bank
-    ? `<div class="paybox${s.duitnow_qr ? " has-qr" : ""}">${s.duitnow_qr ? `<img src="${esc(s.duitnow_qr)}" alt="DuitNow QR code for Apolaki">` : ""}<div>${s.duitnow_qr ? `<p class="small muted" style="margin:0 0 8px">Scan with any banking or e-wallet app${bank ? ", or transfer to:" : "."}</p>` : ""}${bank}</div></div>`
+    ? `<div class="paybox${s.duitnow_qr ? " has-qr" : ""}">${s.duitnow_qr ? `<img src="${esc(s.duitnow_qr)}" alt="DuitNow QR code for Apolaki">` : ""}<div>${s.duitnow_qr ? `<p class="small muted" style="margin:0 0 8px">Scan with any banking or e-wallet app${bank ? ", or transfer to:" : "."}</p>` : ""}${bank}</div></div>
+       <button class="btn ghost save-qr" type="button" id="saveQr"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save ${s.duitnow_qr ? "QR &amp; bank details" : "bank details"} to phone</button>
+       <p class="small muted" style="margin:6px 0 0">Then open your banking app and scan it from your photos.</p>`
     : `<p class="muted">We'll send you our DuitNow / bank details on WhatsApp.</p>`;
   $("#view").innerHTML = `
     <section class="done">
@@ -641,7 +643,62 @@ function renderDone() {
       <p style="margin-top:22px"><a href="#/" class="btn ghost">Back to the shop</a></p>
     </section>`;
   $$("[data-copy]").forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast("Copied"); } catch { toast(b.dataset.copy); } });
+  const sq = $("#saveQr"); if (sq) sq.onclick = () => savePayCard(o, sq);
 }
+
+/* ---------- payment card image: QR + bank details, saved to the phone ---------- */
+const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+async function loadImgCors(url) {
+  /* fetch first so the canvas isn't blocked by cross-site image rules */
+  const blob = await fetch(url, { mode: "cors" }).then(r => { if (!r.ok) throw new Error(); return r.blob(); });
+  const u = URL.createObjectURL(blob); try { return await loadImg(u); } finally { setTimeout(() => URL.revokeObjectURL(u), 1000); }
+}
+async function savePayCard(o, btn) {
+  const s = S.settings, label = btn.innerHTML;
+  btn.disabled = true; btn.textContent = "Preparing…";
+  try {
+    try { await document.fonts.ready; } catch {}
+    const W = 1080, qrSize = 760;
+    const qr = s.duitnow_qr ? await loadImgCors(s.duitnow_qr).catch(() => null) : null;
+    const logo = await loadImg("logo.png").catch(() => null);
+    const H = qr ? 1720 : 1080;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const x = c.getContext("2d");
+    x.fillStyle = "#f7f3ec"; x.fillRect(0, 0, W, H);
+    x.textAlign = "center"; x.textBaseline = "alphabetic";
+    let y = 90;
+    if (logo) { const lw = 120, lh = lw * logo.height / logo.width; x.drawImage(logo, (W - lw) / 2, y, lw, lh); y += lh + 50; }
+    x.fillStyle = "#1b1a17"; x.font = '500 64px Fraunces, Georgia, serif'; x.fillText("Apolaki", W / 2, y); y += 54;
+    x.fillStyle = "#7a7368"; x.font = '400 32px Poppins, Arial, sans-serif';
+    x.fillText(`Order ${o.order_no}${o.total != null ? " · " + RM(o.total) + (o.shipping_fee == null ? " + shipping" : "") : ""}`, W / 2, y); y += 50;
+    if (qr) {
+      const pad = 30, bx = (W - qrSize) / 2 - pad;
+      x.fillStyle = "#ffffff"; roundRect(x, bx, y, qrSize + pad * 2, qrSize + pad * 2, 36); x.fill();
+      const r = Math.min(qrSize / qr.width, qrSize / qr.height), dw = qr.width * r, dh = qr.height * r;
+      x.drawImage(qr, (W - dw) / 2, y + pad + (qrSize - dh) / 2, dw, dh);
+      y += qrSize + pad * 2 + 60;
+      x.fillStyle = "#8a6222"; x.font = '600 28px Poppins, Arial, sans-serif'; x.fillText("SCAN WITH ANY BANKING OR E-WALLET APP", W / 2, y); y += 70;
+    } else y += 40;
+    const rows = [["Name", s.account_name], ["Bank", s.bank_name], ["Account", s.account_no], ["Reference", o.order_no]].filter(rw => rw[1]);
+    rows.forEach(([k, v]) => {
+      x.fillStyle = "#7a7368"; x.font = '400 30px Poppins, Arial, sans-serif'; x.fillText(k, W / 2, y); y += 50;
+      x.fillStyle = "#1b1a17"; x.font = (k === "Account" ? '600 54px' : '500 40px') + ' Poppins, Arial, sans-serif'; x.fillText(v, W / 2, y); y += k === "Account" ? 74 : 62;
+    });
+    const blob = await new Promise(res => c.toBlob(res, "image/png"));
+    const name = `Apolaki-payment-${String(o.order_no).replace(/\W/g, "")}.png`;
+    const file = new File([blob], name, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      await navigator.share({ files: [file], title: "Apolaki payment" }).catch(() => {});   /* phone: "Save Image" / "Save to Photos" */
+    } else {
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      toast("Saved to your downloads");
+    }
+    if (s.duitnow_qr && !qr) toast("Saved bank details (the QR couldn't be added)");
+  } catch (e) { toast("Couldn't save the image. Take a screenshot instead."); }
+  btn.disabled = false; btn.innerHTML = label;
+}
+function roundRect(x, a, b, w, h, r) { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }
 
 /* ---------- loading / error ---------- */
 function renderState() {
