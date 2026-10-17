@@ -620,7 +620,7 @@ function renderDone() {
   const qrSrc = C.duitnowQr || s.duitnow_qr;
   const pay = qrSrc || bank
     ? `<div class="paybox${qrSrc ? " has-qr" : ""}">
-         ${qrSrc ? `<figure class="qr-fig"><img src="${esc(qrSrc)}" alt="DuitNow QR code for Jason Labunda Enterprise"><button class="save-link" type="button" data-save>⬇️ Save QR</button></figure>` : ""}
+         ${qrSrc ? `<figure class="qr-fig"><img src="${esc(qrSrc)}" alt="DuitNow QR code for Jason Labunda Enterprise"><button class="save-link" type="button" data-save><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save QR</button></figure>` : ""}
          <div>${qrSrc ? `<p class="small muted" style="margin:0 0 8px">Scan with any banking or e-wallet app${bank ? ", or transfer to:" : "."}</p>` : ""}${bank}</div>
        </div>
        ${qrSrc ? `<p class="small muted" style="margin:8px 0 0">On your phone, save the QR, then open your banking app and scan it from your photos.</p>`
