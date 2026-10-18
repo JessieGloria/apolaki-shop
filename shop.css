@@ -553,3 +553,17 @@ body { font-size: 14.5px; font-weight: 400; letter-spacing: .005em; }
 .qty.sm, .note, .line .ph, .copy, .thumb { border-radius: 0; }
 .more summary { color: var(--brass-ink); }
 #view:focus, #view:focus-visible { outline: none; }
+
+/* ---------- stock-only: sold out & low stock ---------- */
+.tag.low { color: var(--brass-ink); }
+.tag.out { color: var(--muted); }
+.card.sold-out .ph img { opacity: .45; filter: grayscale(.5); }
+.card.sold-out h3 { color: var(--muted); }
+.size.na { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(143,135,123,.7); }
+.avail.low { color: var(--brass-ink) !important; }
+.avail.low svg { color: var(--brass); }
+.avail.out { color: var(--muted) !important; }
+.avail.out strong { color: var(--ink); }
+.avail.out a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.btn:disabled { opacity: .45; cursor: default; }
+.line .warn { display: block; color: var(--danger); font-size: 12px; margin-top: 2px; }

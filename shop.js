@@ -48,8 +48,7 @@ function groupProducts(list) {
   }
   return [...map.values()].map(g => {
     g.items.sort((a, b) => SIZE_ORDER.indexOf(a.label) - SIZE_ORDER.indexOf(b.label));
-    const short = (g.items.find(i => i.short_name) || {}).short_name;
-    g.name = g.items.length === 1 ? nice(short || g.items[0].name) : nice(baseName(short || g.items[0].name));
+    g.name = g.items.length === 1 ? nice(g.items[0].name) : nice(baseName(g.items[0].name));
     g.category = g.items[0].category || "Other";
     g.collection = (g.items.find(i => i.collection) || {}).collection || "";
     g.family = g.items[0].family || "";
@@ -60,7 +59,10 @@ function groupProducts(list) {
     g.dimensions = (g.items.find(i => i.dimensions) || {}).dimensions || "";
     const prices = g.items.map(i => Number(i.price));
     g.min = Math.min(...prices); g.max = Math.max(...prices);
-    g.ready = g.items.some(i => i.ready);
+    g.items.forEach(i => { i.avail = i.available !== undefined ? !!i.available : !!i.ready; i.max = !i.avail ? 0 : i.left != null ? i.left : 10; });
+    g.ready = g.avail = g.items.some(i => i.avail);
+    const lefts = g.items.filter(i => i.avail).map(i => i.left);
+    g.left = g.avail && lefts.every(n => n != null) && lefts.reduce((a, b) => a + b, 0) < 3 ? lefts.reduce((a, b) => a + b, 0) : null;
     const ranks = g.items.map(i => i.popularity).filter(r => r != null);
     g.pop = ranks.length ? Math.min(...ranks) : null;            /* best rank among its sizes; null = no recorded sales */
     g.released = g.items.map(i => i.released || "").sort().pop() || "";
@@ -129,16 +131,18 @@ const I = {
   zoom: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M11 8v6M8 11h6"/></svg>',
   wa: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7.5-.1 1.5-.6 1.8-1.2.2-.6.2-1.1.1-1.2l-.4-.2z"/></svg>'
 };
-const availBox = ready => ready
-  ? `<div class="avail ready">${I.ready}<div><strong>Ready to ship</strong>Already made, posted soon after payment.</div></div>`
-  : `<div class="avail made">${I.made}<div><strong>Made to order</strong>Handmade for you and shipped within ${lead()} after payment.</div></div>`;
+const availBox = it => !it.avail
+  ? `<div class="avail out"><div><strong>Sold out</strong>${waNum() ? `<a href="https://wa.me/${waNum()}?text=${encodeURIComponent("Hi Apolaki! Will this piece be available again?")}" target="_blank" rel="noopener">Ask us on WhatsApp</a> if you'd like one.` : "Check back soon."}</div></div>`
+  : it.left != null ? `<div class="avail low">${I.ready}<div><strong>Only ${it.left} left</strong>Posted after payment is confirmed.</div></div>`
+  : `<div class="avail ready">${I.ready}<div><strong>In stock</strong>Posted after payment is confirmed.</div></div>`;
+const stockTag = g => !g.avail ? `<span class="tag out">Sold out</span>` : g.left != null ? `<span class="tag low">Only ${g.left} left</span>` : "";
 const phHtml = (src, alt, cls = "ph", lazy = true) => `<div class="${cls}${src ? "" : " empty"}">${src ? `<img src="${esc(src)}" alt="${esc(alt)}"${lazy ? ' loading="lazy" decoding="async"' : ""}>` : `<img src="logo.png" alt="">`}`;
 const priceText = g => g.min === g.max ? RM(g.min) : "From " + RM(g.min);
 
 function card(g, i = 0) {
-  return `<article class="card" style="animation-delay:${Math.min(i, 12) * 35}ms">
+  return `<article class="card${g.avail ? "" : " sold-out"}" style="animation-delay:${Math.min(i, 12) * 35}ms">
     <a href="#/p/${encodeURIComponent(g.id)}" class="card-link" aria-label="${esc(g.name)}, ${esc(priceText(g))}">
-      ${phHtml(g.photo, g.name)}${g.ready ? `<span class="tag ready">Ready to ship</span>` : ""}</div>
+      ${phHtml(g.photo, g.name)}${stockTag(g)}</div>
       <div class="meta"><div class="row"><h3>${esc(g.name)}</h3><span class="price">${priceText(g)}</span></div>
         ${g.items.length > 1 ? `<div class="sizes">${g.items.map(i => esc(i.label)).join(" · ")}</div>` : ""}</div>
     </a>
@@ -204,7 +208,7 @@ function related(g) {
 function renderHome() {
   if (S.loading || S.error) return renderState();
   const s = S.settings, cats = categories(), cols = collections().filter(c => c.photo).slice(0, 6);
-  const withPhoto = list => [...list.filter(g => g.photo), ...list.filter(g => !g.photo)];   /* pieces with photos first */
+  const withPhoto = list => [...list.filter(g => g.photo && g.avail), ...list.filter(g => g.photo && !g.avail), ...list.filter(g => !g.photo)];   /* in stock with photos first */
   const bestAll = bestsellers(), best = withPhoto(bestAll).slice(0, 8);
   const fresh = withPhoto(newest()).slice(0, 8);
   const heroG = bestAll.find(g => g.photo) || S.groups.find(g => g.photo) || {};
@@ -248,7 +252,7 @@ function renderHome() {
       <div>
         <p class="eyebrow">Our craft</p>
         <h3>${esc(s.story_title || "Made by hand, in small batches.")}</h3>
-        <p class="pre">${esc(s.story_text || "Every Apolaki piece is made in brass by Jason Labunda. Many are made to order, so no two are exactly alike.")}</p>
+        <p class="pre">${esc(s.story_text || "Every Apolaki piece is made in brass by Jason Labunda. Each one is finished by hand, so no two are exactly alike.")}</p>
         <a class="link" href="#/collections">Explore the collections</a>
       </div>
     </section>
@@ -259,8 +263,8 @@ function renderHome() {
     </section>` : ""}
 
     <div class="perk-row">
-      <div><b>Made to order</b>within ${lead()}</div>
-      <div><b>Ships in Malaysia</b>${isFinite(minRate) ? "from " + RM(minRate) : "flat rates"}</div>
+      <div><b>Handmade</b>in brass</div>
+      <div><b>Standard shipping</b>${isFinite(minRate) ? "from " + RM(minRate) : "in Malaysia"}</div>
       <div><b>DuitNow</b>or transfer</div>
     </div>`;
 }
@@ -325,7 +329,7 @@ function openFilters(opts) {
       <p class="label">Price</p>
       <div class="opt-list">${PRICES.map(([k, l]) => `<button type="button" class="opt" data-price="${k}" aria-pressed="${f.price === k}">${l}</button>`).join("")}</div>
       <p class="label">Availability</p>
-      <div class="opt-list"><button type="button" class="opt" data-ready="0" aria-pressed="${!f.ready}">All pieces</button><button type="button" class="opt" data-ready="1" aria-pressed="${f.ready}">Ready to ship only</button></div>
+      <div class="opt-list"><button type="button" class="opt" data-ready="0" aria-pressed="${!f.ready}">All pieces</button><button type="button" class="opt" data-ready="1" aria-pressed="${f.ready}">In stock only</button></div>
       <div class="sheet-actions">
         <button type="button" class="btn ghost" id="reset">Reset</button>
         <button type="button" class="btn grow" id="apply">Show ${filtered({ ...f, col: opts.col || "" }).length} pieces</button>
@@ -368,7 +372,7 @@ function renderProduct(id, pickSku) {
   if (S.loading || S.error) return renderState();
   const g = groupOf(id);
   if (!g) { $("#view").innerHTML = emptyState("This piece is no longer available.", `<a class="btn ghost" href="#/shop">Browse the shop</a>`); return; }
-  let sel = g.items.find(i => i.sku === pickSku) || g.items.find(i => i.ready) || g.items[0], qty = 1;
+  let sel = g.items.find(i => i.sku === pickSku) || g.items.find(i => i.avail) || g.items[0], qty = 1;
   const s = S.settings, rel = related(g), rates = s.rates || {};
   const details = [
     ["Material", g.material], ["Dimensions", g.dimensions],
@@ -390,8 +394,8 @@ function renderProduct(id, pickSku) {
         <p class="cat">${esc(g.category)}${g.collection ? " · " + esc(g.collection) : ""}</p>
         <h1 class="pd-name">${esc(g.name)}</h1>
         <p class="big-price" id="price">${RM(sel.price)}</p>
-        ${g.items.length > 1 ? `<p class="label">Size</p><div class="size-row" role="radiogroup" aria-label="Size">${g.items.map(i => `<button class="size" type="button" role="radio" data-sku="${esc(i.sku)}" aria-checked="${i.sku === sel.sku}">${esc(i.label)}</button>`).join("")}</div>` : ""}
-        <div id="avail">${availBox(sel.ready)}</div>
+        ${g.items.length > 1 ? `<p class="label">Size</p><div class="size-row" role="radiogroup" aria-label="Size">${g.items.map(i => `<button class="size${i.avail ? "" : " na"}" type="button" role="radio" data-sku="${esc(i.sku)}" aria-checked="${i.sku === sel.sku}" ${i.avail ? "" : 'aria-label="' + esc(i.label) + ', sold out"'}>${esc(i.label)}</button>`).join("")}</div>` : ""}
+        <div id="avail">${availBox(sel)}</div>
         <div class="buy" id="buy">
           <div class="qty" aria-label="Quantity"><button type="button" data-q="-1" aria-label="Fewer">−</button><span id="qty">1</span><button type="button" data-q="1" aria-label="More">+</button></div>
           <button class="btn grow" type="button" id="add">Add to cart</button>
@@ -401,7 +405,7 @@ function renderProduct(id, pickSku) {
         ${details.length ? `<dl class="details">${details.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : ""}
         <details class="acc" open><summary>Delivery</summary><div>
           <ul class="plain">${REGIONS.filter(r => r.id !== "overseas" && rates[r.id] != null).map(r => `<li><span>${esc(r.short)}</span><span>${RM(rates[r.id])}</span></li>`).join("")}<li><span>Overseas</span><span>Quoted on WhatsApp</span></li></ul>
-          <p>Made-to-order pieces are handmade after payment and shipped within ${lead()}. Ready pieces are posted soon after payment. You'll get the tracking number on WhatsApp.</p>
+          <p>Standard shipping rates. Pieces are posted after payment is confirmed, and you'll get the tracking number on WhatsApp.</p>
         </div></details>
         ${s.returns_text ? `<details class="acc"><summary>Returns &amp; exchanges</summary><div><p class="pre">${esc(s.returns_text)}</p></div></details>` : ""}
         <details class="acc"><summary>Payment</summary><div><p>Pay by DuitNow QR or bank transfer after you place your order, then send the receipt on WhatsApp. No account needed.</p></div></details>
@@ -415,22 +419,31 @@ function renderProduct(id, pickSku) {
   const upd = () => {
     $("#price").textContent = RM(sel.price * qty);
     $("#qty").textContent = qty;
-    $("#avail").innerHTML = availBox(sel.ready);
+    $("#avail").innerHTML = availBox(sel);
+    qty = Math.max(1, Math.min(qty, sel.max || 1));
+    $("#qty").textContent = qty; $("#price").textContent = RM(sel.price * qty); $("#sbPrice").textContent = RM(sel.price * qty);
+    [$("#add"), $("#add2")].forEach(b => { b.disabled = !sel.avail; b.textContent = sel.avail ? "Add to cart" : "Sold out"; });
+    $$("[data-q]").forEach(b => b.disabled = !sel.avail || (b.dataset.q === "1" ? qty >= sel.max : qty <= 1));
     $$("[data-sku]").forEach(b => b.setAttribute("aria-checked", b.dataset.sku === sel.sku));
     $("#sbName").textContent = g.name + (sel.label ? " · " + sel.label : "");
     $("#sbPrice").textContent = RM(sel.price * qty);
     const ph = photoUrl(sel.photo); if (ph && $("#mainImg")) { $("#mainImg").src = ph; $$(".thumb").forEach(t => t.setAttribute("aria-pressed", g.photos[t.dataset.img] === ph)); }
   };
   $$("[data-sku]").forEach(b => b.onclick = () => { sel = g.items.find(i => i.sku === b.dataset.sku); upd(); });
-  $$("[data-q]").forEach(b => b.onclick = () => { qty = Math.min(10, Math.max(1, qty + Number(b.dataset.q))); upd(); });
+  $$("[data-q]").forEach(b => b.onclick = () => { qty = Math.min(sel.max || 1, Math.max(1, qty + Number(b.dataset.q))); upd(); });
   $$(".thumb").forEach(t => t.onclick = () => { $("#mainImg").src = g.photos[t.dataset.img]; $$(".thumb").forEach(x => x.setAttribute("aria-pressed", x === t)); });
   const add = () => {
-    const l = S.basket.find(x => x.sku === sel.sku);
-    if (l) l.qty = Math.min(10, l.qty + qty); else S.basket.push({ sku: sel.sku, qty });
+    if (!sel.avail) return;
+    const l = S.basket.find(x => x.sku === sel.sku), have = l ? l.qty : 0, room = sel.max - have;
+    if (room <= 0) return toast(`Only ${sel.max} available. ${have} already in your cart.`);
+    const n = Math.min(qty, room);
+    if (l) l.qty += n; else S.basket.push({ sku: sel.sku, qty: n });
     saveBasket();
-    showAdded(g, sel, qty);
+    if (n < qty) toast(`Only ${sel.max} available, so ${n} added`);
+    showAdded(g, sel, n);
   };
   $("#add").onclick = add; $("#add2").onclick = add;
+  upd();
   const z = $("#zoom"); if (z) z.onclick = () => openZoom(g.photos, Math.max(0, g.photos.indexOf($("#mainImg").src)));
   /* sticky Add to cart once the main button scrolls away (mobile) */
   if ("IntersectionObserver" in window) {
@@ -520,6 +533,7 @@ function renderWishlist() {
 }
 
 /* ---------- cart ---------- */
+const cartProblem = () => { const bad = basketLines().filter(l => !l.p.avail || l.qty > l.p.max); return bad.length ? `Some pieces in your cart are sold out or low in stock. Please update them to continue.` : ""; };
 function renderCart() {
   if (S.loading || S.error) return renderState();
   const lines = basketLines();
@@ -528,18 +542,18 @@ function renderCart() {
     ${lines.length ? `<div class="cart">
       <div class="panel lines">${lines.map(l => `<div class="line">
         <a href="#/p/${encodeURIComponent(l.g.id)}">${phHtml(l.g.photo, "", "ph")}</div></a>
-        <div><h4><a href="#/p/${encodeURIComponent(l.g.id)}">${esc(l.g.name)}</a></h4><div class="sub">${l.p.label ? "Size " + esc(l.p.label) + " · " : ""}${l.p.ready ? "Ready to ship" : "Made to order"}</div>
-          <div class="qty sm"><button type="button" data-dq="-1" data-s="${esc(l.sku)}" aria-label="Fewer">−</button><span>${l.qty}</span><button type="button" data-dq="1" data-s="${esc(l.sku)}" aria-label="More" ${l.qty >= 10 ? "disabled" : ""}>+</button></div></div>
+        <div><h4><a href="#/p/${encodeURIComponent(l.g.id)}">${esc(l.g.name)}</a></h4><div class="sub">${l.p.label ? "Size " + esc(l.p.label) : ""}${!l.p.avail ? `<span class="warn">Sold out, please remove</span>` : l.qty > l.p.max ? `<span class="warn">Only ${l.p.max} left, please lower the quantity</span>` : l.p.left != null ? `${l.p.label ? " · " : ""}Only ${l.p.left} left` : ""}</div>
+          <div class="qty sm"><button type="button" data-dq="-1" data-s="${esc(l.sku)}" aria-label="Fewer">−</button><span>${l.qty}</span><button type="button" data-dq="1" data-s="${esc(l.sku)}" aria-label="More" ${l.qty >= l.p.max ? "disabled" : ""}>+</button></div></div>
         <div class="right"><strong>${RM(l.qty * l.p.price)}</strong><button class="rm" type="button" data-rm="${esc(l.sku)}">Remove</button></div>
       </div>`).join("")}</div>
       <div class="panel summary">
         <div class="sumrow"><span>Subtotal</span><strong>${RM(subtotal())}</strong></div>
         <div class="sumrow muted"><span>Shipping</span><span>${ship.length ? `From ${RM(Math.min(...ship))}` : "At checkout"}</span></div>
-        <a class="btn block" href="#/checkout">Checkout</a>
+        ${cartProblem() ? `<p class="err">${cartProblem()}</p><button class="btn block" type="button" disabled>Checkout</button>` : `<a class="btn block" href="#/checkout">Checkout</a>`}
         <p class="small muted center">No account needed · Pay by DuitNow or transfer</p>
       </div>
     </div>` : emptyState("Your cart is empty.", `<a class="btn" href="#/shop">Start shopping</a>`)}`;
-  $$("[data-dq]").forEach(b => b.onclick = () => { const l = S.basket.find(x => x.sku === b.dataset.s); l.qty = Math.min(10, l.qty + Number(b.dataset.dq)); saveBasket(); renderCart(); });
+  $$("[data-dq]").forEach(b => b.onclick = () => { const l = S.basket.find(x => x.sku === b.dataset.s), it = basketLines().find(x => x.sku === l.sku); l.qty = Math.max(1, Math.min(Math.max(1, it ? it.p.max : 10), l.qty + Number(b.dataset.dq))); saveBasket(); renderCart(); });
   $$("[data-rm]").forEach(b => b.onclick = () => { S.basket = S.basket.filter(x => x.sku !== b.dataset.rm); saveBasket(); renderCart(); toast("Removed"); });
 }
 
@@ -548,9 +562,9 @@ const form = store.get("details", { region: "semenanjung" });
 function renderCheckout(errMsg) {
   if (S.loading || S.error) return renderState();
   const lines = basketLines();
-  if (!lines.length) { location.hash = "#/cart"; return; }
+  if (!lines.length || cartProblem()) { location.hash = "#/cart"; return; }
   if (!store.get("checkoutRef", null)) store.set("checkoutRef", uid());   /* one reference per order: a double tap can't create two orders */
-  const ship = rate(form.region), sub = subtotal(), anyMade = lines.some(l => !l.p.ready);
+  const ship = rate(form.region), sub = subtotal();
   const f = k => esc(form[k] || "");
   $("#view").innerHTML = `
     <div class="page-head"><a class="back" href="#/cart">${I.back} Cart</a></div>
@@ -582,13 +596,12 @@ function renderCheckout(errMsg) {
       </div>
       <div class="panel summary">
         <h3>Order summary</h3>
-        ${lines.map(l => `<div class="sline"><span class="n">${esc(l.g.name)}${l.p.label ? " (" + esc(l.p.label) + ")" : ""} × ${l.qty}<small>${l.p.ready ? "Ready to ship" : "Made to order"}</small></span><span>${RM(l.qty * l.p.price)}</span></div>`).join("")}
+        ${lines.map(l => `<div class="sline"><span class="n">${esc(l.g.name)}${l.p.label ? " (" + esc(l.p.label) + ")" : ""} × ${l.qty}</span><span>${RM(l.qty * l.p.price)}</span></div>`).join("")}
         <div class="totals">
           <div class="sumrow"><span>Subtotal</span><span>${RM(sub)}</span></div>
-          <div class="sumrow"><span>Shipping</span><span>${ship == null ? "To be quoted" : RM(ship)}</span></div>
+          <div class="sumrow"><span>Standard shipping</span><span>${ship == null ? "To be quoted" : RM(ship)}</span></div>
           <div class="sumrow total"><span>Total</span><span>${RM(sub + (ship || 0))}${ship == null ? " + shipping" : ""}</span></div>
         </div>
-        ${anyMade ? `<p class="note">Made-to-order pieces are handmade after payment and shipped within ${lead()}.</p>` : ""}
         <p class="note">Next you'll see our DuitNow QR and bank details. Pay, then send the receipt on WhatsApp.</p>
         ${errMsg ? `<p class="err" role="alert">${esc(errMsg)}</p>` : ""}
         <button class="btn block" type="submit" id="place">Place order · ${RM(sub + (ship || 0))}</button>
@@ -612,7 +625,10 @@ function renderCheckout(errMsg) {
       store.set("lastOrder", order); store.del("checkoutRef");
       S.basket = []; saveBasket();
       location.hash = "#/order";
-    } catch (err) { renderCheckout(err.message); }
+    } catch (err) {
+      if (/sold out|only \d+ left/i.test(err.message)) { try { S.products = await rpc("shop_catalog"); S.groups = groupProducts(S.products); } catch {} }
+      renderCheckout(err.message);
+    }
   };
 }
 
@@ -655,11 +671,11 @@ function renderDone() {
         <li><div><h4>Pay ${quote ? "the total" : RM(o.total)} by DuitNow or bank transfer</h4>${pay}</div></li>
         <li><div><h4>Send us your receipt on WhatsApp</h4><p class="muted">Your order details are already written in the message.</p>
           ${wa ? `<a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">${I.wa} Send order on WhatsApp</a>` : `<p class="muted">Please message us with your order number.</p>`}</div></li>
-        <li><div><h4>We make &amp; ship it</h4><p class="muted">${o.items.some(i => !i.ready) ? `Made-to-order pieces ship within ${lead()} after payment.` : "Ready pieces are posted soon after payment."} You'll get the tracking number on WhatsApp.</p></div></li>
+        <li><div><h4>We pack &amp; ship it</h4><p class="muted">Your order is posted after payment is confirmed. You'll get the tracking number on WhatsApp.</p></div></li>
       </ol>
       <div class="panel">
         <h3>Your order</h3>
-        ${o.items.map(i => `<div class="sline"><span class="n">${esc(nice(baseName(i.name)))}${sizeShort(i.size) ? " (" + sizeShort(i.size) + ")" : ""} × ${i.qty}<small>${i.ready ? "Ready to ship" : "Made to order"}</small></span><span>${RM(i.qty * i.price)}</span></div>`).join("")}
+        ${o.items.map(i => `<div class="sline"><span class="n">${esc(nice(baseName(i.name)))}${sizeShort(i.size) ? " (" + sizeShort(i.size) + ")" : ""} × ${i.qty}</span><span>${RM(i.qty * i.price)}</span></div>`).join("")}
         <div class="totals"><div class="sumrow"><span>Shipping</span><span>${quote ? "To be quoted" : RM(o.shipping_fee)}</span></div>
         <div class="sumrow total" style="margin-bottom:0"><span>Total</span><span>${RM(o.total)}${quote ? " + shipping" : ""}</span></div></div>
       </div>
@@ -796,8 +812,8 @@ function footer() {
   const s = S.settings, wa = waNum(), rates = s.rates || {};
   $("#footInfo").innerHTML = `
     <div><h4>Contact</h4>${wa ? `<p><a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a></p>` : ""}<p class="muted">Questions about sizes or custom pieces are welcome.</p></div>
-    <div><h4>Delivery</h4><ul class="plain">${REGIONS.filter(r => r.id !== "overseas" && rates[r.id] != null).map(r => `<li><span>${esc(r.short)}</span><span>${RM(rates[r.id])}</span></li>`).join("")}<li><span>Overseas</span><span>Quoted</span></li></ul>
-      <p class="muted">Made-to-order pieces ship within ${lead()}.</p></div>
+    <div><h4>Standard shipping</h4><ul class="plain">${REGIONS.filter(r => r.id !== "overseas" && rates[r.id] != null).map(r => `<li><span>${esc(r.short)}</span><span>${RM(rates[r.id])}</span></li>`).join("")}<li><span>Overseas</span><span>Quoted</span></li></ul>
+      <p class="muted">Standard shipping, posted after payment.</p></div>
     <div><h4>Payment</h4><p class="muted">DuitNow QR or bank transfer. No account needed.</p>${s.returns_text ? `<h4>Returns</h4><p class="muted pre">${esc(s.returns_text)}</p>` : ""}</div>`;
 }
 
