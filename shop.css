@@ -567,3 +567,10 @@ body { font-size: 14.5px; font-weight: 400; letter-spacing: .005em; }
 .avail.out a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .btn:disabled { opacity: .45; cursor: default; }
 .line .warn { display: block; color: var(--danger); font-size: 12px; margin-top: 2px; }
+
+/* postcode lookup: town choices when one postcode covers several towns */
+.pc-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 0 14px; }
+.pc-pick .muted { width: 100%; }
+.pc-pick .chip { padding: 7px 12px; }
+.pc-msg { margin: -6px 0 12px; }
+.pc-msg:empty { display: none; }

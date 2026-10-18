@@ -13,6 +13,9 @@ Customers can't see stock numbers, costs, retailers, sales or accounts.
 - `index.html`, `shop.css`, `shop.js` – the shop
 - `config.js` – Supabase address, publishable key, where product photos live
 - `logo.png`, `favicon.png` – made from the Apolaki icon
+- `postcodes.json` – Malaysian postcodes → town and state, used to autofill checkout. From
+  [AsyrafHussin/malaysia-postcodes](https://github.com/AsyrafHussin/malaysia-postcodes), MIT licence,
+  © 2020–2025 Asyraf Hussin.
 
 ## Put it online (Vercel)
 1. Create a **new** GitHub repository, e.g. `apolaki-shop`, and upload the files in this folder (not into the app's repository).

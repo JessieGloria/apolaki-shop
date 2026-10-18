@@ -548,13 +548,71 @@ function renderCart() {
       </div>`).join("")}</div>
       <div class="panel summary">
         <div class="sumrow"><span>Subtotal</span><strong>${RM(subtotal())}</strong></div>
-        <div class="sumrow muted"><span>Shipping</span><span>${ship.length ? `From ${RM(Math.min(...ship))}` : "At checkout"}</span></div>
+        <div class="sumrow muted"><span>Standard shipping</span><span>${ship.length ? `From ${RM(Math.min(...ship))}` : "At checkout"}</span></div>
         ${cartProblem() ? `<p class="err">${cartProblem()}</p><button class="btn block" type="button" disabled>Checkout</button>` : `<a class="btn block" href="#/checkout">Checkout</a>`}
         <p class="small muted center">No account needed · Pay by DuitNow or transfer</p>
       </div>
     </div>` : emptyState("Your cart is empty.", `<a class="btn" href="#/shop">Start shopping</a>`)}`;
   $$("[data-dq]").forEach(b => b.onclick = () => { const l = S.basket.find(x => x.sku === b.dataset.s), it = basketLines().find(x => x.sku === l.sku); l.qty = Math.max(1, Math.min(Math.max(1, it ? it.p.max : 10), l.qty + Number(b.dataset.dq))); saveBasket(); renderCart(); });
   $$("[data-rm]").forEach(b => b.onclick = () => { S.basket = S.basket.filter(x => x.sku !== b.dataset.rm); saveBasket(); renderCart(); toast("Removed"); });
+}
+
+/* ---------- postcode lookup ----------
+   postcodes.json: Malaysian postcodes → town + state, from github.com/AsyrafHussin/malaysia-postcodes (MIT licence).
+   Loaded only on the checkout page. Format: {s:[states], c:[[stateIndex, town, "base-36 gaps between postcodes, dot separated"]]} */
+const PC_STATE = { "Wp Kuala Lumpur": "W.P. Kuala Lumpur", "Wp Labuan": "W.P. Labuan", "Wp Putrajaya": "W.P. Putrajaya" };
+const PC_REGION = { "Sabah": "sabah", "W.P. Labuan": "sabah", "Sarawak": "sarawak" };   /* everything else ships at the Peninsular rate */
+let pcData = null, pcNote = "";
+function loadPostcodes() {
+  return pcData || (pcData = fetch("postcodes.json").then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => {
+    const states = d.s.map(s => PC_STATE[s] || s), map = new Map();
+    for (const [si, town, gaps] of d.c) {
+      let n = 0;
+      for (const g of gaps.split(".")) { n += parseInt(g, 36); const k = String(n).padStart(5, "0"); if (!map.has(k)) map.set(k, []); map.get(k).push({ city: town, state: states[si] }); }
+    }
+    return { map, states: [...states].sort() };
+  }).catch(() => { pcData = null; return null; }));
+}
+function wirePostcode(co) {
+  const pc = $("#postcode", co), city = $("#city", co), st = $("#state", co), pick = $("#pcPick", co), msg = $("#pcMsg", co);
+  const my = form.region !== "overseas";
+  msg.textContent = pcNote; pcNote = "";
+  if (!my) return;
+  const save = () => store.set("details", form);
+  const set = (el, v) => { el.value = v; form[el.name] = v; };
+  const showPick = opts => {
+    pick.hidden = opts.length < 2;
+    pick.innerHTML = opts.length < 2 ? "" : `<span class="muted small">Which town?</span>` + opts.map((o, i) =>
+      `<button type="button" class="chip${o.city === form.city ? " on" : ""}" data-i="${i}" aria-pressed="${o.city === form.city}">${esc(o.city)}</button>`).join("");
+    $$("button", pick).forEach(b => b.onclick = () => { const o = opts[b.dataset.i]; set(city, o.city); set(st, o.state); save(); showPick(opts); });
+  };
+  const lookup = async apply => {
+    const code = pc.value.replace(/\D/g, "");
+    if (code.length !== 5) { showPick([]); if (apply) msg.textContent = ""; return; }
+    const db = await loadPostcodes();
+    if (!db || pc.value.replace(/\D/g, "") !== code) return;            /* data didn't load, or they've kept typing */
+    const opts = db.map.get(code) || [];
+    if (!opts.length) { showPick([]); if (apply) msg.textContent = "We couldn't find this postcode. Please check it, or type your town and state."; return; }
+    showPick(opts);
+    if (!apply) return;
+    const hit = opts.find(o => o.city.toLowerCase() === String(form.city || "").trim().toLowerCase()) || opts[0];
+    set(city, hit.city); set(st, hit.state); form.country = "Malaysia";
+    const region = PC_REGION[hit.state] || "semenanjung";
+    msg.textContent = "";
+    if (region !== form.region) {
+      form.region = region; save();
+      const r = REGIONS.find(x => x.id === region);
+      pcNote = `Shipping set to ${r.short} (${RM(rate(region))}) for postcode ${code}.`;
+      renderCheckout();
+      const p = $("#postcode"); p.focus(); p.setSelectionRange(p.value.length, p.value.length);
+      return;
+    }
+    save(); showPick(opts);
+  };
+  pc.addEventListener("input", () => { form.postcode = pc.value; lookup(true); });
+  city.addEventListener("input", () => { if (!pick.hidden) $$("button", pick).forEach(b => { const on = b.textContent === city.value; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }); });
+  loadPostcodes().then(db => { if (db) $("#pcStates", co).innerHTML = db.states.map(s => `<option value="${esc(s)}">`).join(""); });
+  lookup(false);
 }
 
 /* ---------- checkout ---------- */
@@ -587,9 +645,13 @@ function renderCheckout(errMsg) {
             <p class="note">Overseas postage depends on the country. We'll WhatsApp you the shipping cost before you pay.</p>` : ""}
           <div class="field"><label for="address">Address</label><textarea id="address" name="address" autocomplete="street-address" rows="2" required>${f("address")}</textarea></div>
           <div class="two">
-            <div class="field"><label for="postcode">Postcode</label><input id="postcode" name="postcode" autocomplete="postal-code" inputmode="numeric" value="${f("postcode")}"></div>
+            <div class="field"><label for="postcode">Postcode</label><input id="postcode" name="postcode" autocomplete="postal-code" inputmode="numeric" maxlength="${form.region === "overseas" ? 12 : 5}" value="${f("postcode")}"></div>
             <div class="field"><label for="city">City</label><input id="city" name="city" autocomplete="address-level2" value="${f("city")}"></div>
           </div>
+          <div class="pc-pick" id="pcPick" hidden></div>
+          <div class="field"><label for="state">${form.region === "overseas" ? "State / province" : "State"}</label><input id="state" name="state" autocomplete="address-level1"${form.region === "overseas" ? "" : ` list="pcStates"`} value="${f("state")}">
+            <datalist id="pcStates"></datalist></div>
+          <p class="pc-msg muted small" id="pcMsg" role="status" aria-live="polite"></p>
           <details class="more"${form.note ? " open" : ""}><summary>Add a note (optional)</summary>
             <div class="field"><label for="note">Note</label><textarea id="note" name="note" rows="2" placeholder="Gift message, size questions…">${f("note")}</textarea></div></details>
         </div>
@@ -610,6 +672,7 @@ function renderCheckout(errMsg) {
   const co = $("#co");
   co.addEventListener("input", e => { if (e.target.name && e.target.name !== "region") { form[e.target.name] = e.target.value; store.set("details", form); } });
   $$("[name=region]", co).forEach(r => r.onchange = () => { form.region = r.value; store.set("details", form); renderCheckout(); });
+  wirePostcode(co);
   co.onsubmit = async e => {
     e.preventDefault();
     const btn = $("#place"); if (btn.disabled) return;
@@ -621,7 +684,7 @@ function renderCheckout(errMsg) {
     try {
       const res = await rpc("shop_place_order", { p: { ...form, ref: store.get("checkoutRef", null), items: S.basket.map(l => ({ sku: l.sku, qty: l.qty })) } });
       const order = { ...res, region: form.region, country: form.country, name: form.name, phone: form.phone,
-        address: [form.address, [form.postcode, form.city].filter(Boolean).join(" "), form.region === "overseas" ? form.country : ""].filter(Boolean).join(", ") };
+        address: [form.address, [form.postcode, form.city].filter(Boolean).join(" "), form.state, form.region === "overseas" ? form.country : "Malaysia"].filter(Boolean).join(", ") };
       store.set("lastOrder", order); store.del("checkoutRef");
       S.basket = []; saveBasket();
       location.hash = "#/order";
