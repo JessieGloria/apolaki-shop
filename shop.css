@@ -574,3 +574,44 @@ body { font-size: 14.5px; font-weight: 400; letter-spacing: .005em; }
 .pc-pick .chip { padding: 7px 12px; }
 .pc-msg { margin: -6px 0 12px; }
 .pc-msg:empty { display: none; }
+
+/* order page: status tracker, receipt upload, messages */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.order-page .panel { margin-top: 16px; }
+.track { list-style: none; margin: 20px 0 6px; padding: 0; display: grid; gap: 0; }
+.track li { display: grid; grid-template-columns: 22px 1fr; gap: 12px; position: relative; padding-bottom: 16px; color: var(--muted); }
+.track li:last-child { padding-bottom: 0; }
+.track li::before { content: ""; position: absolute; left: 10px; top: 16px; bottom: -2px; width: 1px; background: var(--line); }
+.track li:last-child::before { display: none; }
+.track li.on::before { background: var(--brass); }
+.track li.now::before { background: var(--line); }
+.track .dot { width: 9px; height: 9px; margin: 6px 0 0 6px; border: 1px solid var(--muted); background: var(--bg); position: relative; z-index: 1; }
+.track li.on { color: var(--ink); }
+.track li.on .dot { background: var(--brass); border-color: var(--brass); }
+.track li.now .dot { box-shadow: 0 0 0 4px rgba(196, 154, 82, .2); }
+.track b { display: block; font-weight: 500; font-size: 14px; }
+.receipt-box { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.receipt-box h4 { margin: 0 0 4px; font-weight: 600; font-size: 15px; }
+.receipt-box .muted { margin: 0 0 12px; }
+.receipt-ok { display: flex; gap: 10px; align-items: flex-start; color: var(--ready); margin: 0 0 12px; font-size: 14px; }
+.receipt-ok svg, .bubble .att svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.btn.upload { cursor: pointer; }
+.btn.upload.busy { opacity: .6; pointer-events: none; }
+.msgs { display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; }
+.bubble { max-width: 85%; padding: 10px 12px; background: var(--tile); border: 1px solid var(--line); align-self: flex-start; }
+.bubble.me { align-self: flex-end; background: var(--brass-bg); border-color: rgba(196, 154, 82, .35); }
+.bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.bubble .att { display: flex; gap: 8px; align-items: center; color: var(--ready); }
+.bubble .meta { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.composer { display: flex; gap: 8px; align-items: flex-end; }
+.composer textarea { flex: 1; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 16px; resize: vertical; border-radius: 0; }
+.composer textarea:focus { outline: none; border-color: var(--brass); box-shadow: 0 0 0 3px rgba(196, 154, 82, .18); }
+.composer .btn { padding: 14px 18px; }
+.email-ask { margin-top: 14px; }
+.email-ask label { display: block; margin-bottom: 6px; }
+.row-in { display: flex; gap: 8px; }
+.row-in input { flex: 1; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 16px; border-radius: 0; }
+.row-in .btn { padding: 12px 16px; }
+.order-page .err { margin: 10px 0 0; }
+.keep { margin-top: 22px; }
+.keep p { margin: 0 0 10px; }

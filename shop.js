@@ -74,7 +74,8 @@ function groupProducts(list) {
 
 /* ---------- state ---------- */
 const S = { products: [], groups: [], settings: {}, basket: store.get("basket", []), wish: store.get("wishlist", []), loading: true, error: "",
-  f: { q: "", cat: "", col: "", price: "", ready: false, sort: "popular" } };
+  f: { q: "", cat: "", col: "", price: "", ready: false, sort: "popular" },
+  orders: {}, draft: {}, orderPoll: null };   /* order pages by private code, unsent messages, reply check timer */
 const groupOf = sku => S.groups.find(g => g.items.some(i => i.sku === sku));
 const lead = () => { const d = Number(S.settings.lead_days || 7); return d % 7 === 0 ? `${d / 7} week${d > 7 ? "s" : ""}` : `${d} days`; };
 const REGIONS = [
@@ -664,7 +665,7 @@ function renderCheckout(errMsg) {
           <div class="sumrow"><span>Standard shipping</span><span>${ship == null ? "To be quoted" : RM(ship)}</span></div>
           <div class="sumrow total"><span>Total</span><span>${RM(sub + (ship || 0))}${ship == null ? " + shipping" : ""}</span></div>
         </div>
-        <p class="note">Next you'll see our DuitNow QR and bank details. Pay, then send the receipt on WhatsApp.</p>
+        <p class="note">Next you'll see our DuitNow QR and bank details. Pay, then upload your receipt on your order page.</p>
         ${errMsg ? `<p class="err" role="alert">${esc(errMsg)}</p>` : ""}
         <button class="btn block" type="submit" id="place">Place order · ${RM(sub + (ship || 0))}</button>
       </div>
@@ -687,7 +688,8 @@ function renderCheckout(errMsg) {
         address: [form.address, [form.postcode, form.city].filter(Boolean).join(" "), form.state, form.region === "overseas" ? form.country : "Malaysia"].filter(Boolean).join(", ") };
       store.set("lastOrder", order); store.del("checkoutRef");
       S.basket = []; saveBasket();
-      location.hash = "#/order";
+      if (res.token) { rememberOrder(res.order_no, res.token); footer(); location.hash = `#/o/${res.token}?new=1`; }
+      else location.hash = "#/order";
     } catch (err) {
       if (/sold out|only \d+ left/i.test(err.message)) { try { S.products = await rpc("shop_catalog"); S.groups = groupProducts(S.products); } catch {} }
       renderCheckout(err.message);
@@ -707,16 +709,14 @@ function waLink(o) {
     o.shipping_fee == null ? "Please let me know the shipping cost." : "Here is my payment receipt:"].join("\n");
   return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
 }
-function renderDone() {
-  const o = store.get("lastOrder", null);
-  if (!o) { location.hash = "#/"; return; }
-  if (S.loading) return renderState();
-  const s = S.settings, wa = waLink(o), quote = o.shipping_fee == null;
+/* DuitNow QR + bank details, with copy and "save to phone" buttons (wired by wirePay) */
+function payHtml(o) {
+  const s = S.settings;
   const bank = s.account_no ? `<dl class="kv"><dt>Bank</dt><dd>${esc(s.bank_name)}</dd><dt>Name</dt><dd>${esc(s.account_name)}</dd>
       <dt>Account</dt><dd>${esc(s.account_no)}<button class="copy" type="button" data-copy="${esc(s.account_no)}">Copy</button></dd>
       <dt>Reference</dt><dd>${esc(o.order_no)}<button class="copy" type="button" data-copy="${esc(o.order_no)}">Copy</button></dd></dl>` : "";
   const qrSrc = C.duitnowQr || s.duitnow_qr;
-  const pay = qrSrc || bank
+  return qrSrc || bank
     ? `<div class="paybox${qrSrc ? " has-qr" : ""}">
          ${qrSrc ? `<figure class="qr-fig"><img src="${esc(qrSrc)}" alt="DuitNow QR code for Jason Labunda Enterprise"><button class="save-link" type="button" data-save><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save QR</button></figure>` : ""}
          <div>${qrSrc ? `<p class="small muted" style="margin:0 0 8px">Scan with any banking or e-wallet app${bank ? ", or transfer to:" : "."}</p>` : ""}${bank}</div>
@@ -724,6 +724,18 @@ function renderDone() {
        ${qrSrc ? `<p class="small muted" style="margin:8px 0 0">On your phone, save the QR, then open your banking app and scan it from your photos.</p>`
          : `<button class="btn ghost save-qr" type="button" data-save><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save bank details to phone</button>`}`
     : `<p class="muted">We'll send you our DuitNow / bank details on WhatsApp.</p>`;
+}
+function wirePay(o) {
+  $$("[data-copy]").forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast("Copied"); } catch { toast(b.dataset.copy); } });
+  $$("[data-save]").forEach(b => b.onclick = () => savePayCard(o, b));
+}
+/* confirmation for orders placed before order pages existed (no private code saved) */
+function renderDone() {
+  const o = store.get("lastOrder", null);
+  if (!o) { location.hash = "#/"; return; }
+  if (o.token) { location.replace("#/o/" + o.token); return; }
+  if (S.loading) return renderState();
+  const wa = waLink(o), quote = o.shipping_fee == null, pay = payHtml(o);
   $("#view").innerHTML = `
     <section class="done">
       <div class="tick">${I.tick}</div>
@@ -744,9 +756,150 @@ function renderDone() {
       </div>
       <p style="margin-top:22px"><a href="#/" class="btn ghost">Back to the shop</a></p>
     </section>`;
-  $$("[data-copy]").forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast("Copied"); } catch { toast(b.dataset.copy); } });
-  $$("[data-save]").forEach(b => b.onclick = () => savePayCard(o, b));
+  wirePay(o);
 }
+
+/* ---------- order page: #/o/<private code> — status, payment, receipt upload, messages ---------- */
+const when = t => new Date(t).toLocaleString("en-MY", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+const myOrders = () => store.get("myOrders", []);
+function rememberOrder(no, token) {
+  store.set("myOrders", [{ no, token }, ...myOrders().filter(x => x.token !== token)].slice(0, 10));
+}
+async function uploadReceipt(token, file) {
+  const fd = new FormData(); fd.append("token", token);
+  const f = await shrinkImage(file); fd.append("file", f, f.name || "receipt");
+  const r = await fetch(`${C.supabaseUrl}/functions/v1/shop-receipt`, { method: "POST", body: fd });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error) || "Couldn't upload just now, please try again.");
+  return j;
+}
+/* big phone photos are shrunk before upload, so it works on slow mobile data */
+async function shrinkImage(file) {
+  if (!/^image\//.test(file.type) || file.size < 700 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file), k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const b = await new Promise(res => c.toBlob(res, "image/jpeg", 0.85));
+    return b && b.size < file.size ? new File([b], "receipt.jpg", { type: "image/jpeg" }) : file;
+  } catch { return file; }   /* e.g. HEIC on some browsers: send the original */
+}
+function msgsHtml(v) {
+  if (!v.messages.length) return `<p class="muted small" style="margin:0 0 12px">Questions about your order? Send us a message here and we'll reply on this page.</p>`;
+  return `<div class="msgs">${v.messages.map(m => `<div class="bubble ${m.sender === "customer" ? "me" : "them"}">
+    ${m.kind === "receipt" ? `<p class="att">${I.tick} Payment receipt sent</p>` : `<p>${esc(m.body)}</p>`}
+    <span class="meta">${m.sender === "team" ? esc(m.name || "Apolaki") + " · " : ""}${esc(when(m.at))}</span></div>`).join("")}</div>`;
+}
+function renderOrder(token, isNew) {
+  const v = S.orders[token];
+  if (!v) {
+    $("#view").innerHTML = `<div class="line" style="height:180px;border-radius:18px;margin:16px 0"></div>`;
+    rpc("shop_order_view", { p_token: token }).then(res => {
+      if (!location.hash.startsWith("#/o/" + token)) return;
+      if (!res) { $("#view").innerHTML = emptyState("We couldn't find that order. Please check the link.", `<a class="btn ghost" href="#/">Back to the shop</a>`); return; }
+      S.orders[token] = res; rememberOrder(res.order_no, token); footer(); renderOrder(token, isNew);
+    }).catch(() => { $("#view").innerHTML = emptyState("We couldn't load your order just now. Please check your connection.", `<button class="btn ghost" type="button" onclick="location.reload()">Try again</button>`); });
+    return;
+  }
+  if (S.loading) return renderState();
+  document.title = `Order ${v.order_no} · Apolaki`;
+  const pending = v.status === "pending", quote = v.shipping_fee == null, cancelled = v.status === "cancelled";
+  const receipts = v.messages.filter(m => m.kind === "receipt");
+  const steps = [["Order placed", v.created_at], ["Payment confirmed", v.paid_at], ["Shipped", v.shipped_at], ["Delivered", v.delivered_at]];
+  const at = steps.reduce((n, s, i) => s[1] ? i : n, 0);
+  const link = location.href.split("?")[0];
+  const wa = waNum();
+  $("#view").innerHTML = `
+    <section class="done order-page">
+      ${isNew ? `<div class="tick">${I.tick}</div><h1>Thank you, ${esc(String(v.name).split(" ")[0])}!</h1>
+        <p>Your order <span class="ordno">${esc(v.order_no)}</span> has been received. Total <strong>${RM(v.total)}${quote ? " + shipping" : ""}</strong>.</p>`
+        : `<h1>Order ${esc(v.order_no)}</h1><p class="muted">Placed ${esc(when(v.created_at))} · ${RM(v.total)}${quote ? " + shipping" : ""}</p>`}
+      ${cancelled ? `<p class="note">This order was cancelled. Send us a message below if you have any questions.</p>` : `
+      <ol class="track" aria-label="Order status">${steps.map(([l, t], i) => `<li class="${i <= at ? "on" : ""}${i === at ? " now" : ""}"><span class="dot"></span><div><b>${l}</b>${t ? `<span class="muted small">${esc(when(t))}</span>` : i === 1 && pending && receipts.length ? `<span class="muted small">Checking your receipt</span>` : ""}</div></li>`).join("")}</ol>`}
+      ${v.packed_at && !v.shipped_at && !cancelled ? `<p class="note">Your order is packed and will be posted soon.</p>` : ""}
+      ${v.tracking && !cancelled ? `<div class="panel"><h3>Tracking</h3><dl class="kv">${v.courier ? `<dt>Courier</dt><dd>${esc(v.courier)}</dd>` : ""}<dt>Number</dt><dd>${esc(v.tracking)}<button class="copy" type="button" data-copy="${esc(v.tracking)}">Copy</button></dd></dl></div>` : ""}
+      ${pending ? `
+      <div class="panel">
+        <h3>${quote ? "Payment" : "Pay " + RM(v.total)}</h3>
+        ${quote ? `<p class="note">Overseas postage depends on the country. We'll send you the shipping cost in the messages below before you pay.</p>` : ""}
+        ${payHtml(v)}
+        <div class="receipt-box">
+          ${receipts.length ? `<p class="receipt-ok">${I.tick} <span>Receipt received ${esc(when(receipts[receipts.length - 1].at))}. We'll confirm your payment soon.</span></p>` : `<h4>After paying, upload your receipt</h4><p class="muted small">A screenshot, photo or PDF of the transfer.</p>`}
+          <label class="btn ${receipts.length ? "ghost" : ""} block upload"><input type="file" id="rcpt" accept="image/*,application/pdf" hidden>${receipts.length ? "Upload another receipt" : "Upload payment receipt"}</label>
+          <p class="err" id="rcptErr" role="alert" hidden></p>
+        </div>
+      </div>` : ""}
+      <div class="panel">
+        <h3>Messages</h3>
+        <div id="msgs">${msgsHtml(v)}</div>
+        <form class="composer" id="msgForm">
+          <label class="sr" for="msgText">Message</label>
+          <textarea id="msgText" rows="2" maxlength="1000" placeholder="Write a message…">${esc(S.draft[token] || "")}</textarea>
+          <button class="btn" type="submit" id="msgSend">Send</button>
+        </form>
+        <p class="err" id="msgErr" role="alert" hidden></p>
+        ${S.settings.email_replies ? (v.has_email ? `<p class="muted small" style="margin:10px 0 0">We'll email you when we reply.</p>`
+          : `<form class="email-ask" id="emailForm"><label for="replyEmail" class="small">Get an email when we reply <span class="muted">(optional)</span></label>
+              <div class="row-in"><input id="replyEmail" type="email" autocomplete="email" placeholder="you@email.com"><button class="btn ghost" type="submit">Save</button></div></form>`)
+          : `<p class="muted small" style="margin:10px 0 0">Come back to this page to see our reply.</p>`}
+        ${wa ? `<p class="small" style="margin:10px 0 0"><a href="https://wa.me/${wa}?text=${encodeURIComponent(`Hi Apolaki! About my order ${v.order_no}:`)}" target="_blank" rel="noopener">Prefer WhatsApp? Message us there</a></p>` : ""}
+      </div>
+      <div class="panel">
+        <h3>Your order</h3>
+        ${v.items.map(i => `<div class="sline"><span class="n">${esc(nice(baseName(i.name)))}${sizeShort(i.size) ? " (" + sizeShort(i.size) + ")" : ""} × ${i.qty}</span><span>${RM(i.qty * i.price)}</span></div>`).join("")}
+        <div class="totals"><div class="sumrow"><span>Shipping</span><span>${quote ? "To be quoted" : RM(v.shipping_fee)}</span></div>
+        <div class="sumrow total" style="margin-bottom:0"><span>Total</span><span>${RM(v.total)}${quote ? " + shipping" : ""}</span></div></div>
+        ${v.address ? `<p class="muted small" style="margin:12px 0 0">Ship to ${esc(v.name)}, ${esc(v.address)}</p>` : ""}
+      </div>
+      <div class="keep"><p class="small muted">Keep this page to check your order later. It's saved in this browser, or copy the link.</p>
+        <button class="btn ghost" type="button" data-copy="${esc(link)}">Copy link to this order</button></div>
+      <p style="margin-top:22px"><a href="#/" class="btn ghost">Back to the shop</a></p>
+    </section>`;
+  wirePay(v);
+  const ta = $("#msgText");
+  ta.oninput = () => { S.draft[token] = ta.value; };
+  $("#msgForm").onsubmit = async e => {
+    e.preventDefault();
+    const text = ta.value.trim(), btn = $("#msgSend"), err = $("#msgErr");
+    if (!text || btn.disabled) return;
+    btn.disabled = true; btn.textContent = "Sending…"; err.hidden = true;
+    try {
+      S.orders[token] = await rpc("shop_send_message", { p_token: token, p_body: text });
+      S.draft[token] = ""; ta.value = "";
+      $("#msgs").innerHTML = msgsHtml(S.orders[token]);
+    } catch (x) { err.textContent = x.message; err.hidden = false; }
+    btn.disabled = false; btn.textContent = "Send";
+  };
+  const rc = $("#rcpt");
+  if (rc) rc.onchange = async () => {
+    const file = rc.files[0]; if (!file) return;
+    const lab = rc.closest("label"), err = $("#rcptErr");
+    lab.classList.add("busy"); lab.lastChild.textContent = "Uploading…"; err.hidden = true;
+    try { S.orders[token] = await uploadReceipt(token, file); toast("Receipt sent. Thank you!"); renderOrder(token, isNew); }
+    catch (x) { err.textContent = x.message; err.hidden = false; lab.classList.remove("busy"); lab.lastChild.textContent = "Upload payment receipt"; rc.value = ""; }
+  };
+  const ef = $("#emailForm");
+  if (ef) ef.onsubmit = async e => {
+    e.preventDefault();
+    const val = $("#replyEmail").value.trim(); if (!val) return;
+    try { S.orders[token] = await rpc("shop_set_email", { p_token: token, p_email: val }); toast("We'll email you when we reply"); renderOrder(token, isNew); }
+    catch (x) { toast(x.message); }
+  };
+  /* check for replies and status changes while the page is open */
+  clearInterval(S.orderPoll);
+  S.orderPoll = setInterval(() => refreshOrder(token, isNew), 20000);
+}
+async function refreshOrder(token, isNew) {
+  if (document.hidden || !location.hash.startsWith("#/o/" + token)) return;
+  let fresh; try { fresh = await rpc("shop_order_view", { p_token: token }); } catch { return; }
+  const old = S.orders[token]; if (!fresh || JSON.stringify(fresh) === JSON.stringify(old)) return;
+  S.orders[token] = fresh;
+  const onlyMsgs = JSON.stringify({ ...fresh, messages: 0 }) === JSON.stringify({ ...old, messages: 0 });
+  /* don't redraw the whole page under someone who's typing */
+  if (onlyMsgs || document.activeElement === $("#msgText")) $("#msgs").innerHTML = msgsHtml(fresh);
+  else renderOrder(token, isNew);
+}
+document.addEventListener("visibilitychange", () => { const m = location.hash.match(/^#\/o\/([0-9a-f]{32,})/); if (m && !document.hidden) refreshOrder(m[1], /[?&]new=1/.test(location.hash)); });
 
 /* ---------- payment card image: QR + bank details, saved to the phone ---------- */
 const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
@@ -840,6 +993,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#sheet
 function route() {
   closeLayers(true);
   if (S.io) { S.io.disconnect(); S.io = null; }
+  clearInterval(S.orderPoll);
   const h = location.hash || "#/", path = h.split("?")[0];
   $("#view").focus({ preventScroll: true });   /* move focus to the new page (before rendering, so a search box can take it) */
   document.title = "Apolaki · Handmade brass jewellery";
@@ -852,6 +1006,11 @@ function route() {
   else if (path === "#/cart") { renderCart(); tab = "cart"; }
   else if (path === "#/checkout") { renderCheckout(); tab = "cart"; }
   else if (path === "#/order") { renderDone(); tab = ""; }
+  else if ((m = path.match(/^#\/o\/([0-9a-f]{32,})$/))) {
+    const isNew = /[?&]new=1/.test(h), had = !!S.orders[m[1]];
+    renderOrder(m[1], isNew); tab = "";
+    if (had) refreshOrder(m[1], isNew);   /* shown from memory: check for anything new straight away */
+  }
   else renderHome();
   $$("[data-tab]").forEach(a => a.toggleAttribute("aria-current", a.dataset.tab === tab));
   document.body.classList.toggle("on-product", path.startsWith("#/p/") || path.startsWith("#/item/"));
@@ -872,8 +1031,9 @@ document.addEventListener("error", e => {
 window.addEventListener("scroll", () => $(".top").classList.toggle("scrolled", window.scrollY > 4), { passive: true });
 
 function footer() {
-  const s = S.settings, wa = waNum(), rates = s.rates || {};
+  const s = S.settings, wa = waNum(), rates = s.rates || {}, mine = myOrders();
   $("#footInfo").innerHTML = `
+    ${mine.length ? `<div><h4>Your orders</h4><ul class="plain">${mine.map(o => `<li><a href="#/o/${esc(o.token)}">Order ${esc(o.no)}</a></li>`).join("")}</ul></div>` : ""}
     <div><h4>Contact</h4>${wa ? `<p><a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a></p>` : ""}<p class="muted">Questions about sizes or custom pieces are welcome.</p></div>
     <div><h4>Standard shipping</h4><ul class="plain">${REGIONS.filter(r => r.id !== "overseas" && rates[r.id] != null).map(r => `<li><span>${esc(r.short)}</span><span>${RM(rates[r.id])}</span></li>`).join("")}<li><span>Overseas</span><span>Quoted</span></li></ul>
       <p class="muted">Standard shipping, posted after payment.</p></div>
