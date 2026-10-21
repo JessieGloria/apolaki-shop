@@ -615,3 +615,20 @@ body { font-size: 14.5px; font-weight: 400; letter-spacing: .005em; }
 .order-page .err { margin: 10px 0 0; }
 .keep { margin-top: 22px; }
 .keep p { margin: 0 0 10px; }
+
+/* My orders: header icon, home banner, list and "find my order" */
+.order-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 0; padding: 14px 16px; background: var(--brass-bg); border: 1px solid rgba(196, 154, 82, .35); text-decoration: none; }
+.order-banner + .order-banner { margin-top: 8px; }
+.order-banner b { display: block; font-weight: 500; font-size: 14px; }
+.order-banner span { color: var(--brass-ink); font-size: 13px; }
+.order-banner svg, .orow svg { width: 8px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
+#orderBanner:empty { display: none; }
+#orderBanner { margin-bottom: 12px; }
+.olist { display: grid; gap: 8px; margin: 18px 0 12px; }
+.orow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); text-decoration: none; }
+.orow b { display: block; font-weight: 500; }
+.orow .muted { display: block; }
+.ostat { display: block; margin-top: 4px; font-size: 13px; color: var(--brass-ink); }
+.newtag { display: inline-block; margin-left: 6px; padding: 1px 7px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; background: var(--brass); color: var(--on-ink); }
+.my-orders .find { margin-top: 22px; }
+.my-orders .find h3 { font-size: 17px; }

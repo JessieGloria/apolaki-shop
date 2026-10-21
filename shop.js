@@ -75,7 +75,8 @@ function groupProducts(list) {
 /* ---------- state ---------- */
 const S = { products: [], groups: [], settings: {}, basket: store.get("basket", []), wish: store.get("wishlist", []), loading: true, error: "",
   f: { q: "", cat: "", col: "", price: "", ready: false, sort: "popular" },
-  orders: {}, draft: {}, orderPoll: null };   /* order pages by private code, unsent messages, reply check timer */
+  orders: {}, draft: {}, orderPoll: null,   /* order pages by private code, unsent messages, reply check timer */
+  mine: null };   /* summaries of the orders saved in this browser (null until loaded) */
 const groupOf = sku => S.groups.find(g => g.items.some(i => i.sku === sku));
 const lead = () => { const d = Number(S.settings.lead_days || 7); return d % 7 === 0 ? `${d / 7} week${d > 7 ? "s" : ""}` : `${d} days`; };
 const REGIONS = [
@@ -219,6 +220,7 @@ function renderHome() {
   /* category tiles use a different photo from the banner where possible */
   const catTiles = cats.map(c => ({ ...c, photo: (c.groups.find(g => g.photo && g.photo !== heroG.photo) || c).photo })).filter(c => c.photo);
   $("#view").innerHTML = `
+    <div id="orderBanner">${orderBanner()}</div>
     <section class="hero">
       ${heroG.photo ? `<img src="${esc(heroG.photo)}" alt="${esc(heroG.name)}" fetchpriority="high">` : ""}
       <div class="hero-text">
@@ -763,8 +765,73 @@ function renderDone() {
 const when = t => new Date(t).toLocaleString("en-MY", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const myOrders = () => store.get("myOrders", []);
 function rememberOrder(no, token) {
+  const had = myOrders().some(x => x.token === token);
   store.set("myOrders", [{ no, token }, ...myOrders().filter(x => x.token !== token)].slice(0, 10));
+  if (!had) refreshMine();
 }
+
+/* ---------- My orders: saved in this browser, with a badge when the team has replied ---------- */
+const seenReplies = () => store.get("seenReplies", {});
+const unread = o => !!o.last_team_msg && o.last_team_msg > (seenReplies()[o.token] || 0);
+function markSeen(token, v) {
+  const ids = v.messages.filter(m => m.sender === "team").map(m => m.id); if (!ids.length) return;
+  const seen = seenReplies(), top = Math.max(...ids);
+  if ((seen[token] || 0) >= top) return;
+  seen[token] = top; store.set("seenReplies", seen); orderBadge();
+}
+function orderBadge() {
+  const n = (S.mine || []).filter(unread).length;
+  $$("[data-count=orders]").forEach(b => { b.textContent = n; b.hidden = !n; });
+}
+const custStatus = o => ({
+  pending: o.quote ? "Waiting for shipping quote" : o.receipt ? "Receipt received · checking" : "Waiting for payment",
+  paid: "Payment confirmed", packed: "Packed", shipped: "On the way", delivered: "Delivered", cancelled: "Cancelled"
+})[o.status] || o.status;
+async function refreshMine() {
+  const saved = myOrders();
+  if (!saved.length) { S.mine = []; orderBadge(); return; }
+  try { S.mine = await rpc("shop_my_orders", { p_tokens: saved.map(x => x.token) }); } catch { return; }
+  orderBadge(); footer();
+  /* update what's on screen in place, so the page doesn't jump */
+  const ob = $("#orderBanner"); if (ob) ob.innerHTML = orderBanner();
+  if (location.hash === "#/orders" && !(document.activeElement && document.activeElement.closest("#findForm"))) renderMyOrders();
+}
+function renderMyOrders(errMsg) {
+  const list = S.mine;
+  $("#view").innerHTML = `
+    <section class="done my-orders">
+      <h1>My orders</h1>
+      ${list == null ? `<div class="line" style="height:120px;margin:16px 0"></div>`
+        : list.length ? `<div class="olist">${list.map(o => `<a class="orow" href="#/o/${esc(o.token)}">
+            <div><b>Order ${esc(o.order_no)}</b><span class="muted small">${esc(when(o.created_at))} · ${RM(o.total)}${o.quote ? " + shipping" : ""}</span>
+              <span class="ostat">${esc(custStatus(o))}${unread(o) ? ` <span class="newtag">New reply</span>` : ""}</span></div>${I.next}</a>`).join("")}</div>
+            <p class="muted small">Orders you place on this phone and browser are saved here.</p>`
+        : `<p class="muted">Orders you place on this phone and browser will appear here.</p>`}
+      <div class="panel find">
+        <h3>Ordered on another phone or browser?</h3>
+        <form id="findForm" novalidate>
+          <div class="two">
+            <div class="field"><label for="fNo">Order number</label><input id="fNo" inputmode="numeric" placeholder="#1007" autocomplete="off"></div>
+            <div class="field"><label for="fPhone">Phone number</label><input id="fPhone" type="tel" inputmode="tel" placeholder="012-345 6789" autocomplete="tel"></div>
+          </div>
+          ${errMsg ? `<p class="err" role="alert">${esc(errMsg)}</p>` : ""}
+          <button class="btn ghost block" type="submit" id="findBtn">Find my order</button>
+        </form>
+      </div>
+    </section>`;
+  $("#findForm").onsubmit = async e => {
+    e.preventDefault();
+    const btn = $("#findBtn"); btn.disabled = true; btn.textContent = "Looking…";
+    try {
+      const r = await rpc("shop_find_order", { p_order_no: $("#fNo").value, p_phone: $("#fPhone").value });
+      if (r.error) return renderMyOrders(r.error);
+      location.hash = "#/o/" + r.token;
+    } catch (x) { renderMyOrders(x.message); }
+  };
+}
+const orderBanner = () => (S.mine || []).filter(o => unread(o) || !["delivered", "cancelled"].includes(o.status)).slice(0, 2)
+  .map(o => `<a class="order-banner" href="#/o/${esc(o.token)}"><div><b>Your order ${esc(o.order_no)}</b><span>${unread(o) ? "New reply from Apolaki" : esc(custStatus(o))}</span></div>${I.next}</a>`).join("");
+document.addEventListener("visibilitychange", () => { if (!document.hidden && myOrders().length) refreshMine(); });
 async function uploadReceipt(token, file) {
   const fd = new FormData(); fd.append("token", token);
   const f = await shrinkImage(file); fd.append("file", f, f.name || "receipt");
@@ -856,6 +923,7 @@ function renderOrder(token, isNew) {
       <p style="margin-top:22px"><a href="#/" class="btn ghost">Back to the shop</a></p>
     </section>`;
   wirePay(v);
+  markSeen(token, v);
   const ta = $("#msgText");
   ta.oninput = () => { S.draft[token] = ta.value; };
   $("#msgForm").onsubmit = async e => {
@@ -896,7 +964,7 @@ async function refreshOrder(token, isNew) {
   S.orders[token] = fresh;
   const onlyMsgs = JSON.stringify({ ...fresh, messages: 0 }) === JSON.stringify({ ...old, messages: 0 });
   /* don't redraw the whole page under someone who's typing */
-  if (onlyMsgs || document.activeElement === $("#msgText")) $("#msgs").innerHTML = msgsHtml(fresh);
+  if (onlyMsgs || document.activeElement === $("#msgText")) { $("#msgs").innerHTML = msgsHtml(fresh); markSeen(token, fresh); }
   else renderOrder(token, isNew);
 }
 document.addEventListener("visibilitychange", () => { const m = location.hash.match(/^#\/o\/([0-9a-f]{32,})/); if (m && !document.hidden) refreshOrder(m[1], /[?&]new=1/.test(location.hash)); });
@@ -1006,6 +1074,7 @@ function route() {
   else if (path === "#/cart") { renderCart(); tab = "cart"; }
   else if (path === "#/checkout") { renderCheckout(); tab = "cart"; }
   else if (path === "#/order") { renderDone(); tab = ""; }
+  else if (path === "#/orders") { renderMyOrders(); tab = "orders"; }
   else if ((m = path.match(/^#\/o\/([0-9a-f]{32,})$/))) {
     const isNew = /[?&]new=1/.test(h), had = !!S.orders[m[1]];
     renderOrder(m[1], isNew); tab = "";
@@ -1033,7 +1102,7 @@ window.addEventListener("scroll", () => $(".top").classList.toggle("scrolled", w
 function footer() {
   const s = S.settings, wa = waNum(), rates = s.rates || {}, mine = myOrders();
   $("#footInfo").innerHTML = `
-    ${mine.length ? `<div><h4>Your orders</h4><ul class="plain">${mine.map(o => `<li><a href="#/o/${esc(o.token)}">Order ${esc(o.no)}</a></li>`).join("")}</ul></div>` : ""}
+    <div><h4>Your orders</h4><p><a href="#/orders">${mine.length ? "My orders" : "Find my order"}</a></p></div>
     <div><h4>Contact</h4>${wa ? `<p><a href="https://wa.me/${wa}" target="_blank" rel="noopener">WhatsApp</a></p>` : ""}<p class="muted">Questions about sizes or custom pieces are welcome.</p></div>
     <div><h4>Standard shipping</h4><ul class="plain">${REGIONS.filter(r => r.id !== "overseas" && rates[r.id] != null).map(r => `<li><span>${esc(r.short)}</span><span>${RM(rates[r.id])}</span></li>`).join("")}<li><span>Overseas</span><span>Quoted</span></li></ul>
       <p class="muted">Standard shipping, posted after payment.</p></div>
@@ -1048,6 +1117,7 @@ async function load() {
     footer();
   } catch (e) { S.error = "We couldn't load the shop just now. Please check your connection."; }
   S.loading = false; saveBasket(); saveWish(); route();
+  refreshMine();
 }
 saveBasket(); saveWish();
 load();

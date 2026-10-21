@@ -7,6 +7,8 @@ same Supabase project as the Apolaki app, but only through public shop functions
 - `shop_settings()` – shipping rates, lead time, WhatsApp number, DuitNow QR and bank details
 - `shop_place_order()` – saves a new order as *pending* (prices are checked in the database) and returns its private code
 - `shop_order_view()`, `shop_send_message()`, `shop_set_email()` – the customer's order page, found only by that private code
+- `shop_my_orders()` – status summary of the orders saved in the customer's browser (My orders, home banner, reply badge)
+- `shop_find_order()` – gets an order page back on another phone with order number + phone (wrong tries are limited)
 - `shop-receipt` (Supabase function) – receipt uploads, checked for size and real file type
 
 Customers can't see stock numbers, costs, retailers, sales or accounts.
